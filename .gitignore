@@ -1,1 +1,14 @@
 gitporn
+
+# Build artifacts
+build/
+bin/
+*.o
+*.obj
+*.exe
+*.log
+
+# Mac/Linux cruft
+.DS_Store
+*.swp
+*.swo
