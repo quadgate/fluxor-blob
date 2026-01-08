@@ -34,8 +34,10 @@ $(BENCH_BIN): $(LIB_OBJ) $(BENCH_SRC)
 	$(CXX) $(CXXFLAGS) -Iinclude $(LIB_OBJ) $(BENCH_SRC) -o $@ $(LDFLAGS)
 
 test: $(TEST_BIN)
+	./$(TEST_BIN)
 
 bench: $(BENCH_BIN)
+	./$(BENCH_BIN)
 
 clean:
 	rm -rf $(OBJ_DIR) $(BIN_DIR)
