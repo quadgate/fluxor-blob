@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -45,6 +46,12 @@ public:
 
     const std::string& root() const { return root_; }
 
+public:
+    // Returns full path for the key's blob file in a bucket (with version).
+    std::string pathForKey(const std::string& bucket, const std::string& key, const std::string& versionId) const;
+    // Returns full path for the key's blob file in a bucket (latest version).
+    std::string pathForKey(const std::string& bucket, const std::string& key) const;
+
 private:
     std::string root_;
 
@@ -56,9 +63,6 @@ private:
     static void writeFileAtomic(const std::string& path, const std::vector<unsigned char>& data);
     static std::vector<unsigned char> readFile(const std::string& path);
     static std::size_t fileSize(const std::string& path);
-
-    // Returns full path for the key's blob file in a bucket.
-    std::string pathForKey(const std::string& bucket, const std::string& key) const;
     // Returns data dir for a bucket.
     std::string dataDir(const std::string& bucket) const;
 };

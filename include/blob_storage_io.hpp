@@ -57,14 +57,14 @@ class CachedBlobStorage {
 public:
     CachedBlobStorage(std::string root, std::size_t cacheBytes);
 
-    void init() { store_.init(); }
+    void init() { store_.init("default"); }
 
     void put(const std::string& key, const std::vector<unsigned char>& data);
     std::vector<unsigned char> get(const std::string& key);
     bool remove(const std::string& key);
-    bool exists(const std::string& key) const { return store_.exists(key); }
-    std::vector<std::string> list() const { return store_.list(); }
-    std::size_t sizeOf(const std::string& key) const { return store_.sizeOf(key); }
+    bool exists(const std::string& key) const { return store_.exists("default", key); }
+    std::vector<std::string> list() const { return store_.list("default"); }
+    std::size_t sizeOf(const std::string& key) const { return store_.sizeOf("default", key); }
 
     // Direct access
     BlobStorage& storage() { return store_; }

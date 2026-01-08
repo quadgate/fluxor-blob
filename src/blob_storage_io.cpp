@@ -72,21 +72,24 @@ CachedBlobStorage::CachedBlobStorage(std::string root, std::size_t cacheBytes)
     : store_(std::move(root)), cache_(cacheBytes) {}
 
 void CachedBlobStorage::put(const std::string& key, const std::vector<unsigned char>& data) {
-    store_.put(key, data);
+    std::string bucket = "default";
+    store_.put(bucket, key, data);
     cache_.invalidate(key); // invalidate stale cache
 }
 
 std::vector<unsigned char> CachedBlobStorage::get(const std::string& key) {
     auto cached = cache_.get(key);
     if (cached) return *cached;
-    auto data = store_.get(key);
+    std::string bucket = "default";
+    auto data = store_.get(bucket, key);
     cache_.put(key, std::make_shared<std::vector<unsigned char>>(data));
     return data;
 }
 
 bool CachedBlobStorage::remove(const std::string& key) {
     cache_.invalidate(key);
-    return store_.remove(key);
+    std::string bucket = "default";
+    return store_.remove(bucket, key);
 }
 
 // ---------------------------------------------------------------------------
@@ -99,11 +102,12 @@ std::vector<BatchResult> batchPut(
 {
     std::vector<BatchResult> results;
     results.reserve(items.size());
+    std::string bucket = "default";
     for (const auto& [key, data] : items) {
         BatchResult r;
         r.key = key;
         try {
-            store.put(key, data);
+            store.put(bucket, key, data);
             r.success = true;
         } catch (const std::exception& ex) {
             r.success = false;
@@ -120,9 +124,10 @@ std::vector<std::pair<std::string, std::vector<unsigned char>>> batchGet(
 {
     std::vector<std::pair<std::string, std::vector<unsigned char>>> results;
     results.reserve(keys.size());
+    std::string bucket = "default";
     for (const auto& key : keys) {
         try {
-            results.emplace_back(key, store.get(key));
+            results.emplace_back(key, store.get(bucket, key));
         } catch (...) {
             results.emplace_back(key, std::vector<unsigned char>{});
         }
@@ -140,7 +145,8 @@ std::future<void> asyncPut(
     std::vector<unsigned char> data)
 {
     return std::async(std::launch::async, [&store, key, data = std::move(data)]() mutable {
-        store.put(key, data);
+        std::string bucket = "default";
+        store.put(bucket, key, data);
     });
 }
 
@@ -149,7 +155,8 @@ std::future<std::vector<unsigned char>> asyncGet(
     const std::string& key)
 {
     return std::async(std::launch::async, [&store, key]() {
-        return store.get(key);
+        std::string bucket = "default";
+        return store.get(bucket, key);
     });
 }
 
@@ -193,16 +200,12 @@ void MappedBlob::close() {
 
 // Helper to get path for a key (mirrors BlobStorage::pathForKey logic)
 static std::string pathForKeyExternal(const BlobStorage& store, const std::string& key) {
-    // Hex-encode
-    std::string hex;
-    hex.reserve(key.size() * 2);
-    const char* digits = "0123456789abcdef";
-    for (unsigned char c : key) {
-        hex.push_back(digits[c >> 4]);
-        hex.push_back(digits[c & 0x0f]);
-    }
-    std::string shard = hex.size() >= 2 ? hex.substr(0, 2) : "zz";
-    return store.root() + "/data/" + shard + "/" + hex;
+    // Use the bucketed path logic from BlobStorage
+    std::string bucket = "default";
+    // Use the same logic as BlobStorage::pathForKey(bucket, key)
+    // (no versionId, so latest version)
+    // This is a public method, so we can call it directly
+    return store.pathForKey(bucket, key);
 }
 
 MappedBlob MappedBlob::open(const BlobStorage& store, const std::string& key) {

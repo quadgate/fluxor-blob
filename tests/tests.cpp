@@ -21,26 +21,27 @@ static std::string tmpdir(const char* suffix = "") {
 // ---------------------------------------------------------------------------
 static void testBasic() {
     std::string root = tmpdir("_basic");
+    std::string bucket = "default";
     BlobStorage bs(root);
-    bs.init();
+    bs.init(bucket);
 
     std::string key = "greeting";
     std::vector<unsigned char> data = {'h','e','l','l','o'};
-    bs.put(key, data);
-    assert(bs.exists(key));
-    assert(bs.sizeOf(key) == data.size());
+    bs.put(bucket, key, data);
+    assert(bs.exists(bucket, key));
+    assert(bs.sizeOf(bucket, key) == data.size());
 
-    auto got = bs.get(key);
+    auto got = bs.get(bucket, key);
     assert(got == data);
 
-    auto keys = bs.list();
+    auto keys = bs.list(bucket);
     bool found = false;
     for (auto& k : keys) if (k == key) found = true;
     assert(found);
 
-    bool removed = bs.remove(key);
+    bool removed = bs.remove(bucket, key);
     assert(removed);
-    assert(!bs.exists(key));
+    assert(!bs.exists(bucket, key));
 
     std::cout << "  [PASS] testBasic\n";
 }
@@ -116,8 +117,9 @@ static void testCachedBlobStorage() {
 // ---------------------------------------------------------------------------
 static void testBatch() {
     std::string root = tmpdir("_batch");
+    std::string bucket = "default";
     BlobStorage bs(root);
-    bs.init();
+    bs.init(bucket);
 
     std::vector<std::pair<std::string, std::vector<unsigned char>>> items = {
         {"a", {'1'}},
@@ -125,14 +127,14 @@ static void testBatch() {
         {"c", {'3'}},
     };
 
-    auto results = batchPut(bs, items);
+    auto results = batchPut(bs, items); // batchPut already patched to use default bucket
     assert(results.size() == 3);
     for (auto& r : results) {
         assert(r.success);
     }
 
     std::vector<std::string> keys = {"a", "b", "c", "missing"};
-    auto got = batchGet(bs, keys);
+    auto got = batchGet(bs, keys); // batchGet already patched to use default bucket
     assert(got.size() == 4);
     assert(got[0].second == std::vector<unsigned char>{'1'});
     assert(got[1].second == std::vector<unsigned char>{'2'});
@@ -148,14 +150,14 @@ static void testBatch() {
 static void testAsync() {
     std::string root = tmpdir("_async");
     BlobStorage bs(root);
-    bs.init();
+    bs.init("default");
 
     std::vector<unsigned char> data = {'a','s','y','n','c'};
 
-    auto futPut = asyncPut(bs, "asynckey", data);
+    auto futPut = asyncPut(bs, "asynckey", data); // asyncPut already patched to use default bucket
     futPut.get(); // wait
 
-    auto futGet = asyncGet(bs, "asynckey");
+    auto futGet = asyncGet(bs, "asynckey"); // asyncGet already patched to use default bucket
     auto got = futGet.get();
     assert(got == data);
 
@@ -167,13 +169,14 @@ static void testAsync() {
 // ---------------------------------------------------------------------------
 static void testMappedBlob() {
     std::string root = tmpdir("_mmap");
+    std::string bucket = "default";
     BlobStorage bs(root);
-    bs.init();
+    bs.init(bucket);
 
     std::vector<unsigned char> data = {'m','m','a','p','p','e','d'};
-    bs.put("mapkey", data);
+    bs.put(bucket, "mapkey", data);
 
-    MappedBlob mb = MappedBlob::open(bs, "mapkey");
+    MappedBlob mb = MappedBlob::open(bs, "mapkey"); // MappedBlob::open only takes key
     assert(mb.valid());
     assert(mb.size() == data.size());
     for (std::size_t i = 0; i < data.size(); ++i) {
@@ -193,30 +196,31 @@ static void testMappedBlob() {
 // ---------------------------------------------------------------------------
 static void testEdgeCases() {
     std::string root = tmpdir("_edge");
+    std::string bucket = "default";
     BlobStorage bs(root);
-    bs.init();
+    bs.init(bucket);
 
     // Empty blob
-    bs.put("empty", {});
-    assert(bs.exists("empty"));
-    assert(bs.sizeOf("empty") == 0);
-    auto empty = bs.get("empty");
+    bs.put(bucket, "empty", {});
+    assert(bs.exists(bucket, "empty"));
+    assert(bs.sizeOf(bucket, "empty") == 0);
+    auto empty = bs.get(bucket, "empty");
     assert(empty.empty());
 
     // Key with special chars
     std::string specialKey = "foo/bar:baz?qux";
     std::vector<unsigned char> data = {'x'};
-    bs.put(specialKey, data);
-    assert(bs.exists(specialKey));
-    assert(bs.get(specialKey) == data);
+    bs.put(bucket, specialKey, data);
+    assert(bs.exists(bucket, specialKey));
+    assert(bs.get(bucket, specialKey) == data);
 
     // Overwrite
-    bs.put(specialKey, {'y','z'});
-    assert(bs.get(specialKey) == std::vector<unsigned char>({'y','z'}));
+    bs.put(bucket, specialKey, {'y','z'});
+    assert(bs.get(bucket, specialKey) == std::vector<unsigned char>({'y','z'}));
 
     // Double remove
-    assert(bs.remove(specialKey));
-    assert(!bs.remove(specialKey));
+    assert(bs.remove(bucket, specialKey));
+    assert(!bs.remove(bucket, specialKey));
 
     std::cout << "  [PASS] testEdgeCases\n";
 }
@@ -226,17 +230,18 @@ static void testEdgeCases() {
 // ---------------------------------------------------------------------------
 static void testFastBlobIndexer() {
     std::string root = tmpdir("_indexer");
+    std::string bucket = "default";
     BlobStorage bs(root);
-    bs.init();
+    bs.init(bucket);
 
     // Add some blobs.
-    bs.put("apple", {'a'});
-    bs.put("apricot", {'b'});
-    bs.put("banana", {'c'});
-    bs.put("cherry", {'d'});
+    bs.put(bucket, "apple", {'a'});
+    bs.put(bucket, "apricot", {'b'});
+    bs.put(bucket, "banana", {'c'});
+    bs.put(bucket, "cherry", {'d'});
 
     FastBlobIndexer indexer(bs);
-    indexer.rebuild();
+    indexer.rebuild(bucket);
 
     // Count and exists.
     assert(indexer.count() == 4);
@@ -297,7 +302,8 @@ static void testFastBlobIndexer() {
 // ---------------------------------------------------------------------------
 static void testIndexedBlobStorage() {
     std::string root = tmpdir("_indexed");
-    IndexedBlobStorage ibs(root);
+    std::string bucket = "default";
+    IndexedBlobStorage ibs(root, bucket);
     ibs.init();
 
     // Put blobs.
@@ -329,8 +335,8 @@ static void testIndexedBlobStorage() {
 
     // Persist and reload.
     ibs.saveIndex();
-    
-    IndexedBlobStorage ibs2(root);
+
+    IndexedBlobStorage ibs2(root, bucket);
     ibs2.init(); // should load index
     assert(ibs2.count() == 2);
     assert(ibs2.exists("users/bob"));

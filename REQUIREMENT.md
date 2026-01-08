@@ -54,6 +54,4 @@ NOTFOUND
 - Bonus challenge: Thử dùng `std::string_view` làm key trong unordered_map (cần custom hash nếu C++17).
 
 **Bắt đầu nào!**  
-Bạn viết code đi, xong paste đây mình review + gợi ý tối ưu thêm (đẩy tốc độ lên level Go fasthttp luôn nếu được 😏).  
-
-Nếu muốn bài khó hơn (multi-thread, memory-mapped file, hoặc compress index), cứ bảo nhé! 🚀
+ABC

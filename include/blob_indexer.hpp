@@ -2,6 +2,8 @@
 
 #include "blob_storage.hpp"
 
+#include <atomic>
+#include <thread>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -26,7 +28,7 @@ public:
     explicit FastBlobIndexer(BlobStorage& store);
 
     // Rebuild index by scanning all blobs on disk. Call after init or if stale.
-    void rebuild();
+    void rebuild(const std::string& bucket);
 
     // Load index from persistent file (fast startup). Returns false if missing/corrupt.
     bool loadFromFile();
@@ -76,7 +78,7 @@ private:
 // ---------------------------------------------------------------------------
 class IndexedBlobStorage {
 public:
-    explicit IndexedBlobStorage(std::string root);
+    IndexedBlobStorage(std::string root, std::string bucket);
 
     void init();
 
@@ -101,7 +103,7 @@ public:
     }
 
     // Rebuild index from disk.
-    void rebuildIndex() { indexer_.rebuild(); }
+    void rebuildIndex() { indexer_.rebuild(bucket_); }
 
     // Persist/load index.
     void saveIndex() const { indexer_.saveToFile(); }
@@ -111,6 +113,7 @@ public:
     FastBlobIndexer& indexer() { return indexer_; }
 
 private:
+    std::string bucket_;
     BlobStorage store_;
     mutable FastBlobIndexer indexer_;
 };

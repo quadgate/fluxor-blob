@@ -4,14 +4,23 @@
 #include <fstream>
 #include <sstream>
 #include <iomanip>
+
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <dirent.h>
 #include <unistd.h>
 #include <errno.h>
 #include <cstring>
+#include <fcntl.h>      // open, O_RDONLY
+#include <sys/mman.h>   // mmap, PROT_READ, MAP_PRIVATE, MAP_FAILED, madvise, MADV_SEQUENTIAL, munmap
+#include <algorithm>    // std::sort, std::max_element
 
 namespace blobstore {
+
+// Returns full path for the key's blob file in a bucket (latest version, no versionId)
+std::string BlobStorage::pathForKey(const std::string& bucket, const std::string& key) const {
+    return pathForKey(bucket, key, "");
+}
 
 
 std::string BlobStorage::dataDir(const std::string& bucket) const {

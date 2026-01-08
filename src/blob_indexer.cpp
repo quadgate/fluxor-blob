@@ -4,6 +4,8 @@
 #include <sstream>
 #include <chrono>
 #include <algorithm>
+#include <thread>
+#include <atomic>
 
 namespace blobstore {
 
@@ -23,12 +25,12 @@ std::uint64_t FastBlobIndexer::nowTimestamp() {
         duration_cast<seconds>(system_clock::now().time_since_epoch()).count());
 }
 
-void FastBlobIndexer::rebuild() {
+void FastBlobIndexer::rebuild(const std::string& bucket) {
     std::lock_guard<std::mutex> lk(mu_);
     hashIndex_.clear();
     sortedIndex_.clear();
 
-    auto keys = store_.list();
+    auto keys = store_.list(bucket);
     std::vector<std::pair<std::string, BlobMeta>> metas(keys.size());
     unsigned nT = std::min(8u, std::thread::hardware_concurrency());
     std::atomic<size_t> idx{0};
@@ -42,7 +44,7 @@ void FastBlobIndexer::rebuild() {
                 for (size_t i = s; i < e; ++i) {
                     BlobMeta meta;
                     try {
-                        meta.size = store_.sizeOf(keys[i]);
+                        meta.size = store_.sizeOf(bucket, keys[i]);
                         meta.modTime = nowTimestamp();
                     } catch (...) {
                         meta.size = 0; meta.modTime = 0;
@@ -189,28 +191,28 @@ void FastBlobIndexer::clear() {
 // IndexedBlobStorage
 // ---------------------------------------------------------------------------
 
-IndexedBlobStorage::IndexedBlobStorage(std::string root)
-    : store_(std::move(root)), indexer_(store_) {}
+IndexedBlobStorage::IndexedBlobStorage(std::string root, std::string bucket)
+    : bucket_(std::move(bucket)), store_(std::move(root)), indexer_(store_) {}
 
 void IndexedBlobStorage::init() {
-    store_.init();
+    store_.init(bucket_);
     // Try to load persisted index; rebuild if missing.
     if (!indexer_.loadFromFile()) {
-        indexer_.rebuild();
+        indexer_.rebuild(bucket_);
     }
 }
 
 void IndexedBlobStorage::put(const std::string& key, const std::vector<unsigned char>& data) {
-    store_.put(key, data);
+    store_.put(bucket_, key, data);
     indexer_.onPut(key, data.size());
 }
 
 std::vector<unsigned char> IndexedBlobStorage::get(const std::string& key) const {
-    return store_.get(key);
+    return store_.get(bucket_, key);
 }
 
 bool IndexedBlobStorage::remove(const std::string& key) {
-    bool ok = store_.remove(key);
+    bool ok = store_.remove(bucket_, key);
     if (ok) {
         indexer_.onRemove(key);
     }

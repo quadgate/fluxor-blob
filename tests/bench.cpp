@@ -39,7 +39,8 @@ int main() {
 
     std::string root = tmpdir();
     BlobStorage store(root);
-    store.init();
+    std::string bucket = "default";
+    store.init(bucket);
 
     // Prepare keys and data
     std::vector<std::string> keys;
@@ -53,7 +54,7 @@ int main() {
     {
         auto t0 = Clock::now();
         for (const auto& k : keys) {
-            store.put(k, data);
+            store.put(bucket, k, data);
         }
         auto t1 = Clock::now();
         double secs = std::chrono::duration<double>(t1 - t0).count();
@@ -64,7 +65,7 @@ int main() {
     {
         auto t0 = Clock::now();
         for (const auto& k : keys) {
-            auto d = store.get(k);
+            auto d = store.get(bucket, k);
             (void)d;
         }
         auto t1 = Clock::now();
@@ -97,6 +98,7 @@ int main() {
             items.emplace_back(k, data);
         }
         auto t0 = Clock::now();
+        // batchPut expects BlobStorage& and items, but batchPut uses bucket = "default" internally, so no change needed
         auto res = batchPut(store, items);
         auto t1 = Clock::now();
         double secs = std::chrono::duration<double>(t1 - t0).count();
@@ -107,7 +109,7 @@ int main() {
     {
         auto t0 = Clock::now();
         for (const auto& k : keys) {
-            MappedBlob mb = MappedBlob::open(store, k);
+            MappedBlob mb = MappedBlob::open(store, k); // MappedBlob::open uses bucket = "default" internally, so no change needed
             volatile unsigned char x = mb.data()[0]; // touch data
             (void)x;
         }
