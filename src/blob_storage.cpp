@@ -13,17 +13,18 @@
 
 namespace blobstore {
 
-static std::string dataDir(const std::string& root) {
-    return root + "/data";
+
+std::string BlobStorage::dataDir(const std::string& bucket) const {
+    return join(join(root_, bucket), "data");
 }
 
 BlobStorage::BlobStorage(std::string root) : root_(std::move(root)) {}
 
-void BlobStorage::init() {
+void BlobStorage::init(const std::string& bucket) {
     if (!ensureDir(root_)) {
         throw std::runtime_error("Failed to create root: " + root_);
     }
-    std::string d = dataDir(root_);
+    std::string d = dataDir(bucket);
     if (!ensureDir(d)) {
         throw std::runtime_error("Failed to create data dir: " + d);
     }
@@ -111,9 +112,22 @@ void BlobStorage::writeFileAtomic(const std::string& path, const std::vector<uns
 }
 
 std::vector<unsigned char> BlobStorage::readFile(const std::string& path) {
-    std::ifstream ifs(path, std::ios::binary);
-    if (!ifs) throw std::runtime_error("Failed to open file: " + path);
-    std::vector<unsigned char> buf((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+    struct stat st{};
+    if (stat(path.c_str(), &st) != 0) throw std::runtime_error("Failed to stat file: " + path);
+    size_t sz = st.st_size;
+    if (sz == 0) return {};
+    int fd = ::open(path.c_str(), O_RDONLY);
+    if (fd < 0) throw std::runtime_error("Failed to open file: " + path);
+    void* data = mmap(nullptr, sz, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (data == MAP_FAILED) {
+        ::close(fd);
+        throw std::runtime_error("mmap failed: " + path);
+    }
+    madvise(data, sz, MADV_SEQUENTIAL);
+    std::vector<unsigned char> buf(sz);
+    std::memcpy(buf.data(), data, sz);
+    munmap(data, sz);
+    ::close(fd);
     return buf;
 }
 
@@ -123,46 +137,73 @@ std::size_t BlobStorage::fileSize(const std::string& path) {
     return static_cast<std::size_t>(st.st_size);
 }
 
-std::string BlobStorage::pathForKey(const std::string& key) const {
+std::string BlobStorage::pathForKey(const std::string& bucket, const std::string& key, const std::string& versionId) const {
     std::string hex = hexEncode(key);
     std::string shard = hex.size() >= 2 ? hex.substr(0, 2) : "zz";
-    return join(join(dataDir(root_), shard), hex);
+    std::string base = join(join(dataDir(bucket), shard), hex);
+    if (!versionId.empty())
+        return base + "__" + versionId;
+    return base;
 }
 
-void BlobStorage::put(const std::string& key, const std::vector<unsigned char>& data) {
-    std::string p = pathForKey(key);
+void BlobStorage::put(const std::string& bucket, const std::string& key, const std::vector<unsigned char>& data, const std::string& versionId) {
+    std::string p = pathForKey(bucket, key, versionId);
     writeFileAtomic(p, data);
+
+    // --- Policy: Keep only 3 latest versions ---
+    std::vector<std::string> versions = listVersions(bucket, key);
+    // Sort descending (latest first)
+    std::sort(versions.rbegin(), versions.rend());
+    for (size_t i = 3; i < versions.size(); ++i) {
+        std::string oldPath = pathForKey(bucket, key, versions[i]);
+        if (fileExists(oldPath)) {
+            ::unlink(oldPath.c_str());
+        }
+    }
 }
 
-std::vector<unsigned char> BlobStorage::get(const std::string& key) const {
-    std::string p = pathForKey(key);
+std::vector<unsigned char> BlobStorage::get(const std::string& bucket, const std::string& key, const std::string& versionId) const {
+    std::string p = pathForKey(bucket, key, versionId.empty() ? getLatestVersionId(bucket, key) : versionId);
     if (!fileExists(p)) throw std::runtime_error("Key not found: " + key);
     return readFile(p);
 }
 
-void BlobStorage::putFromFile(const std::string& key, const std::string& path) {
+void BlobStorage::putFromFile(const std::string& bucket, const std::string& key, const std::string& path, const std::string& versionId) {
     auto data = readFile(path);
-    put(key, data);
+    put(bucket, key, data, versionId);
 }
 
-void BlobStorage::getToFile(const std::string& key, const std::string& path) const {
-    auto data = get(key);
+void BlobStorage::getToFile(const std::string& bucket, const std::string& key, const std::string& path, const std::string& versionId) const {
+    auto data = get(bucket, key, versionId);
     writeFileAtomic(path, data);
 }
 
-bool BlobStorage::remove(const std::string& key) {
-    std::string p = pathForKey(key);
-    if (!fileExists(p)) return false;
-    return ::unlink(p.c_str()) == 0;
+bool BlobStorage::remove(const std::string& bucket, const std::string& key, const std::string& versionId) {
+    if (!versionId.empty()) {
+        std::string p = pathForKey(bucket, key, versionId);
+        if (!fileExists(p)) return false;
+        return ::unlink(p.c_str()) == 0;
+    } else {
+        // Remove all versions
+        bool any = false;
+        for (const auto& v : listVersions(bucket, key)) {
+            std::string p = pathForKey(bucket, key, v);
+            if (fileExists(p)) {
+                ::unlink(p.c_str());
+                any = true;
+            }
+        }
+        return any;
+    }
 }
 
-bool BlobStorage::exists(const std::string& key) const {
-    return fileExists(pathForKey(key));
+bool BlobStorage::exists(const std::string& bucket, const std::string& key) const {
+    return !listVersions(bucket, key).empty();
 }
 
-std::vector<std::string> BlobStorage::list() const {
+std::vector<std::string> BlobStorage::list(const std::string& bucket) const {
     std::vector<std::string> keys;
-    std::string base = dataDir(root_);
+    std::string base = dataDir(bucket);
     DIR* d = ::opendir(base.c_str());
     if (!d) return keys; // treat as empty
     struct dirent* ent;
@@ -178,7 +219,9 @@ std::vector<std::string> BlobStorage::list() const {
             if (hex == "." || hex == "..") continue;
             try {
                 std::string key = hexDecode(hex);
-                keys.push_back(key);
+                // Only add base key (not __version)
+                if (key.find("__") == std::string::npos)
+                    keys.push_back(key);
             } catch (...) {
                 // skip invalid filenames
             }
@@ -188,9 +231,35 @@ std::vector<std::string> BlobStorage::list() const {
     ::closedir(d);
     return keys;
 }
+std::vector<std::string> BlobStorage::listVersions(const std::string& bucket, const std::string& key) const {
+    std::vector<std::string> versions;
+    std::string hex = hexEncode(key);
+    std::string shard = hex.size() >= 2 ? hex.substr(0, 2) : "zz";
+    std::string base = join(join(dataDir(bucket), shard), "");
+    DIR* d = ::opendir(base.c_str());
+    if (!d) return versions;
+    struct dirent* ent;
+    std::string prefix = hex + "__";
+    while ((ent = ::readdir(d)) != nullptr) {
+        std::string fname = ent->d_name;
+        if (fname == "." || fname == "..") continue;
+        if (fname == hex) versions.push_back(""); // unversioned
+        else if (fname.find(prefix) == 0) {
+            versions.push_back(fname.substr(prefix.size()));
+        }
+    }
+    ::closedir(d);
+    return versions;
+}
 
-std::size_t BlobStorage::sizeOf(const std::string& key) const {
-    return fileSize(pathForKey(key));
+std::size_t BlobStorage::sizeOf(const std::string& bucket, const std::string& key, const std::string& versionId) const {
+    return fileSize(pathForKey(bucket, key, versionId.empty() ? getLatestVersionId(bucket, key) : versionId));
+}
+std::string BlobStorage::getLatestVersionId(const std::string& bucket, const std::string& key) const {
+    // List all versions and return the lexicographically last (latest)
+    auto versions = listVersions(bucket, key);
+    if (versions.empty()) return "";
+    return *std::max_element(versions.begin(), versions.end());
 }
 
 } // namespace blobstore

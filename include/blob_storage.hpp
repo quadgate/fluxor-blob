@@ -9,32 +9,39 @@ class BlobStorage {
 public:
     explicit BlobStorage(std::string root);
 
-    // Ensures the storage directories exist.
-    void init();
+    // Ensures the storage directories exist for a bucket.
+    void init(const std::string& bucket);
 
-    // Stores the bytes at key. Overwrites if exists.
-    void put(const std::string& key, const std::vector<unsigned char>& data);
 
-    // Reads the bytes for key. Throws std::runtime_error if not found.
-    std::vector<unsigned char> get(const std::string& key) const;
+    // Versioned put: stores a new version (versionId can be a timestamp, UUID, etc.)
+    void put(const std::string& bucket, const std::string& key, const std::vector<unsigned char>& data, const std::string& versionId = "");
 
-    // Writes file contents to key.
-    void putFromFile(const std::string& key, const std::string& path);
+    // Versioned get: retrieves a specific version or latest if versionId is empty
+    std::vector<unsigned char> get(const std::string& bucket, const std::string& key, const std::string& versionId = "") const;
 
-    // Writes blob to file path; overwrites path if exists.
-    void getToFile(const std::string& key, const std::string& path) const;
+    // Versioned put from file
+    void putFromFile(const std::string& bucket, const std::string& key, const std::string& path, const std::string& versionId = "");
 
-    // Removes key; returns true if removed, false if not found.
-    bool remove(const std::string& key);
+    // Versioned get to file
+    void getToFile(const std::string& bucket, const std::string& key, const std::string& path, const std::string& versionId = "") const;
 
-    // True if key exists.
-    bool exists(const std::string& key) const;
+    // Remove a specific version or all versions if versionId is empty
+    bool remove(const std::string& bucket, const std::string& key, const std::string& versionId = "");
 
-    // Returns list of all keys; may be slow for large stores.
-    std::vector<std::string> list() const;
+    // True if key (any version) exists
+    bool exists(const std::string& bucket, const std::string& key) const;
 
-    // Size in bytes of stored blob; throws if not found.
-    std::size_t sizeOf(const std::string& key) const;
+    // List all keys in a bucket
+    std::vector<std::string> list(const std::string& bucket) const;
+
+    // List all versions for a key
+    std::vector<std::string> listVersions(const std::string& bucket, const std::string& key) const;
+
+    // Size in bytes of a specific version or latest if versionId is empty
+    std::size_t sizeOf(const std::string& bucket, const std::string& key, const std::string& versionId = "") const;
+
+    // Get the latest versionId for a key (empty if none)
+    std::string getLatestVersionId(const std::string& bucket, const std::string& key) const;
 
     const std::string& root() const { return root_; }
 
@@ -50,8 +57,10 @@ private:
     static std::vector<unsigned char> readFile(const std::string& path);
     static std::size_t fileSize(const std::string& path);
 
-    // Returns full path for the key's blob file.
-    std::string pathForKey(const std::string& key) const;
+    // Returns full path for the key's blob file in a bucket.
+    std::string pathForKey(const std::string& bucket, const std::string& key) const;
+    // Returns data dir for a bucket.
+    std::string dataDir(const std::string& bucket) const;
 };
 
 } // namespace blobstore

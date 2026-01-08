@@ -29,17 +29,34 @@ void FastBlobIndexer::rebuild() {
     sortedIndex_.clear();
 
     auto keys = store_.list();
-    for (const auto& key : keys) {
-        BlobMeta meta;
-        try {
-            meta.size = store_.sizeOf(key);
-            meta.modTime = nowTimestamp(); // approximate
-        } catch (...) {
-            continue; // skip broken entries
-        }
-        hashIndex_[key] = meta;
+    std::vector<std::pair<std::string, BlobMeta>> metas(keys.size());
+    unsigned nT = std::min(8u, std::thread::hardware_concurrency());
+    std::atomic<size_t> idx{0};
+    std::vector<std::thread> ths;
+    for (unsigned t = 0; t < nT; ++t) {
+        ths.emplace_back([&]() {
+            for (;;) {
+                size_t s = idx.fetch_add(1024);
+                if (s >= keys.size()) break;
+                size_t e = std::min(s + 1024, keys.size());
+                for (size_t i = s; i < e; ++i) {
+                    BlobMeta meta;
+                    try {
+                        meta.size = store_.sizeOf(keys[i]);
+                        meta.modTime = nowTimestamp();
+                    } catch (...) {
+                        meta.size = 0; meta.modTime = 0;
+                    }
+                    metas[i] = {keys[i], meta};
+                }
+            }
+        });
     }
-
+    for (auto& th : ths) th.join();
+    for (size_t i = 0; i < metas.size(); ++i) {
+        if (metas[i].second.size == 0 && metas[i].second.modTime == 0) continue;
+        hashIndex_[metas[i].first] = metas[i].second;
+    }
     // Build sorted index (pointers into hash index).
     for (auto& [key, meta] : hashIndex_) {
         sortedIndex_[key] = &meta;

@@ -71,6 +71,11 @@ make bench && ./bin/bench
 
 Outputs ops/s and MB/s for sequential put/get, cached reads, batch puts, and mmap reads.
 
+Challenge Indexers
+------------------
+
+Looking for competitive-programming style indexers and micro-optimizations? See the challenge variants under [challenge/](challenge/README.md) with input generators and build/run instructions.
+
 I/O-Bound Optimizations
 -----------------------
 
@@ -95,3 +100,10 @@ Notes
 -----
 - Keys are stored by hex-encoding; listing decodes back to the original key.
 - Keys are case-sensitive.
+
+Further Reading
+---------------
+- Real-world usage: [docs/real_world_usage.md](docs/real_world_usage.md)
+- Indexer design: [docs/indexer_design.md](docs/indexer_design.md)
+- Performance tuning: [docs/performance_tuning.md](docs/performance_tuning.md)
+- Versioning design: [docs/versioned_storage_design.md](docs/versioned_storage_design.md)
