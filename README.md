@@ -62,6 +62,35 @@ Tests
 make test && ./bin/tests
 ```
 
+Benchmark
+---------
+
+```bash
+make bench && ./bin/bench
+```
+
+Outputs ops/s and MB/s for sequential put/get, cached reads, batch puts, and mmap reads.
+
+I/O-Bound Optimizations
+-----------------------
+
+This storage is **I/O-bound**: throughput is limited by disk seek and read/write latency rather than CPU.
+Several techniques are available to mitigate this:
+
+| Technique            | Header / Class           | Description |
+|----------------------|--------------------------|-------------|
+| **LRU read cache**   | `LRUCache`, `CachedBlobStorage` | Keeps recently-read blobs in memory; avoids repeated syscalls for hot keys. |
+| **Memory-mapped I/O** | `MappedBlob`            | Zero-copy read via `mmap()`; lets the OS page cache handle caching and prefetch. |
+| **Batch put/get**    | `batchPut`, `batchGet`   | Reduces per-call overhead when writing/reading many blobs at once. |
+| **Async I/O**        | `asyncPut`, `asyncGet`   | Runs operations on background threads; caller can overlap I/O with compute. |
+
+**Choosing a strategy**
+
+- *Read-heavy, repeated keys*: Use `CachedBlobStorage` with an appropriately sized cache.
+- *Large blobs (> 1 MB)*: Use `MappedBlob` to avoid copying into user-space.
+- *Bulk imports/exports*: Use `batchPut` / `batchGet` for throughput.
+- *Latency-sensitive apps*: Use `asyncPut` / `asyncGet` to avoid blocking the main thread.
+
 Notes
 -----
 - Keys are stored by hex-encoding; listing decodes back to the original key.
