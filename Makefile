@@ -6,7 +6,7 @@ SRC_DIR := src
 BIN_DIR := bin
 OBJ_DIR := build
 
-LIB_OBJ := $(OBJ_DIR)/blob_storage.o $(OBJ_DIR)/blob_storage_io.o
+LIB_OBJ := $(OBJ_DIR)/blob_storage.o $(OBJ_DIR)/blob_storage_io.o $(OBJ_DIR)/blob_indexer.o
 CLI_SRC := $(SRC_DIR)/main.cpp
 CLI_BIN := $(BIN_DIR)/blobstore
 TEST_SRC := tests/tests.cpp

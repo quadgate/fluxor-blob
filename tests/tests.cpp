@@ -1,5 +1,6 @@
 #include "blob_storage.hpp"
 #include "blob_storage_io.hpp"
+#include "blob_indexer.hpp"
 
 #include <cassert>
 #include <iostream>
@@ -221,6 +222,123 @@ static void testEdgeCases() {
 }
 
 // ---------------------------------------------------------------------------
+// Test: FastBlobIndexer
+// ---------------------------------------------------------------------------
+static void testFastBlobIndexer() {
+    std::string root = tmpdir("_indexer");
+    BlobStorage bs(root);
+    bs.init();
+
+    // Add some blobs.
+    bs.put("apple", {'a'});
+    bs.put("apricot", {'b'});
+    bs.put("banana", {'c'});
+    bs.put("cherry", {'d'});
+
+    FastBlobIndexer indexer(bs);
+    indexer.rebuild();
+
+    // Count and exists.
+    assert(indexer.count() == 4);
+    assert(indexer.exists("apple"));
+    assert(indexer.exists("banana"));
+    assert(!indexer.exists("grape"));
+
+    // getMeta.
+    auto meta = indexer.getMeta("apple");
+    assert(meta.has_value());
+    assert(meta->size == 1);
+
+    // allKeys (sorted).
+    auto all = indexer.allKeys();
+    assert(all.size() == 4);
+    assert(all[0] == "apple");
+    assert(all[1] == "apricot");
+    assert(all[2] == "banana");
+    assert(all[3] == "cherry");
+
+    // Prefix query.
+    auto ap = indexer.keysWithPrefix("ap");
+    assert(ap.size() == 2);
+    assert(ap[0] == "apple");
+    assert(ap[1] == "apricot");
+
+    // Range query.
+    auto range = indexer.keysInRange("apricot", "cherry");
+    assert(range.size() == 2); // apricot, banana
+    assert(range[0] == "apricot");
+    assert(range[1] == "banana");
+
+    // onPut / onRemove.
+    indexer.onPut("date", 5);
+    assert(indexer.exists("date"));
+    assert(indexer.count() == 5);
+
+    indexer.onRemove("apple");
+    assert(!indexer.exists("apple"));
+    assert(indexer.count() == 4);
+
+    // Save and load.
+    indexer.saveToFile();
+    indexer.clear();
+    assert(indexer.count() == 0);
+
+    bool loaded = indexer.loadFromFile();
+    assert(loaded);
+    assert(indexer.count() == 4);
+    assert(indexer.exists("date"));
+    assert(!indexer.exists("apple"));
+
+    std::cout << "  [PASS] testFastBlobIndexer\n";
+}
+
+// ---------------------------------------------------------------------------
+// Test: IndexedBlobStorage
+// ---------------------------------------------------------------------------
+static void testIndexedBlobStorage() {
+    std::string root = tmpdir("_indexed");
+    IndexedBlobStorage ibs(root);
+    ibs.init();
+
+    // Put blobs.
+    ibs.put("users/alice", {'1'});
+    ibs.put("users/bob", {'2'});
+    ibs.put("logs/2026-01-08", {'3'});
+
+    // Fast lookups.
+    assert(ibs.count() == 3);
+    assert(ibs.exists("users/alice"));
+    assert(!ibs.exists("users/charlie"));
+
+    auto meta = ibs.getMeta("users/bob");
+    assert(meta.has_value());
+    assert(meta->size == 1);
+
+    // Prefix query.
+    auto users = ibs.keysWithPrefix("users/");
+    assert(users.size() == 2);
+
+    // Get data.
+    auto data = ibs.get("logs/2026-01-08");
+    assert(data == std::vector<unsigned char>{'3'});
+
+    // Remove.
+    assert(ibs.remove("users/alice"));
+    assert(ibs.count() == 2);
+    assert(!ibs.exists("users/alice"));
+
+    // Persist and reload.
+    ibs.saveIndex();
+    
+    IndexedBlobStorage ibs2(root);
+    ibs2.init(); // should load index
+    assert(ibs2.count() == 2);
+    assert(ibs2.exists("users/bob"));
+
+    std::cout << "  [PASS] testIndexedBlobStorage\n";
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 int main() {
@@ -233,6 +351,8 @@ int main() {
     testAsync();
     testMappedBlob();
     testEdgeCases();
+    testFastBlobIndexer();
+    testIndexedBlobStorage();
 
     std::cout << "All tests passed.\n";
     return 0;
